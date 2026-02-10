@@ -1,8 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query"; // 👈 useQueryClient 추가
 import api from "@/lib/api";
-import { Badge } from "@/components/ui/badge"; // 뱃지가 없으면 에러날 수 있음 (아래 설명 참고)
 
 interface Reservation {
     id: number;
@@ -14,13 +13,29 @@ interface Reservation {
 }
 
 export default function MyBookingList() {
+    const queryClient = useQueryClient(); // 👈 리스트 새로고침용
+
     const { data: bookings, isLoading } = useQuery({
         queryKey: ["my-bookings"],
         queryFn: async () => {
-            const res = await api.get<Reservation[]>("/api/bookings/my");
+            const res = await api.get<Reservation[]>("/bookings/my");
             return res.data;
         },
     });
+
+    // 👇 취소 핸들러 함수
+    const handleCancel = async (id: number) => {
+        if (!confirm("정말 예약을 취소하시겠습니까?")) return;
+
+        try {
+            await api.post(`/bookings/${id}/cancel`);
+            alert("취소되었습니다.");
+            // 리스트 새로고침 (다시 불러오기)
+            queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
+        } catch (error) {
+            alert("취소에 실패했습니다.");
+        }
+    };
 
     if (isLoading) return <div>⏳ 불러오는 중...</div>;
 
@@ -39,13 +54,27 @@ export default function MyBookingList() {
                                 {item.date} {item.startTime.substring(0, 5)} ~ {item.endTime.substring(0, 5)}
                             </p>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            item.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :
-                                item.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
-                                    'bg-gray-100 text-gray-700'
-                        }`}>
-              {item.status}
-            </span>
+
+                        <div className="flex flex-col items-end gap-2">
+                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                 item.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :
+                                     item.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                                         item.status === 'CANCELLED' ? 'bg-red-100 text-red-700' : // 👈 취소 상태 색상 추가
+                                             'bg-gray-100 text-gray-700'
+                             }`}>
+                                {item.status === 'CANCELLED' ? '취소됨' : item.status}
+                            </span>
+
+                            {/* 👇 취소되지 않은 예약에만 [취소] 버튼 표시 */}
+                            {item.status !== 'CANCELLED' && (
+                                <button
+                                    onClick={() => handleCancel(item.id)}
+                                    className="text-xs text-red-500 underline hover:text-red-700"
+                                >
+                                    예약 취소
+                                </button>
+                            )}
+                        </div>
                     </div>
                 ))
             )}
