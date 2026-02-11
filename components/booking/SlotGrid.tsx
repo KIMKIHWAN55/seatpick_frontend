@@ -5,47 +5,92 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { format } from "date-fns";
 
-// 👇 [수정] 부모(페이지)에서 spaceId를 받아오도록 정의
+// 👇 [추가] window 객체에 IMP(아임포트)가 있다고 타입스크립트에게 알려줌
+declare global {
+    interface Window {
+        IMP: any;
+    }
+}
+
 interface SlotGridProps {
     spaceId: number;
-    spaceName: string; // 이름도 받아오면 좋음
+    spaceName: string;
 }
 
 export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
     const queryClient = useQueryClient();
     const [selectedDate, setSelectedDate] = useState(new Date());
 
-    // 날짜 포맷 (YYYY-MM-DD)
     const dateStr = format(selectedDate, "yyyy-MM-dd");
 
-    // 1. 해당 공간(spaceId)의 슬롯 조회
+    // 1. 슬롯 조회
     const { data: slots, isLoading } = useQuery({
-        queryKey: ["slots", spaceId, dateStr], // 👈 키에 spaceId 포함 필수!
+        queryKey: ["slots", spaceId, dateStr],
         queryFn: async () => {
-            // API 주소에 spaceId 동적 삽입
             const res = await api.get(`/spaces/${spaceId}/slots?date=${dateStr}`);
             return res.data;
         },
     });
 
-    // 2. 예약 요청 (Mutation)
+    // 2. 백엔드 예약 요청 (결제 성공 시 호출됨)
     const bookingMutation = useMutation({
         mutationFn: async (time: string) => {
+            // API 호출
             await api.post("/bookings", {
-                spaceId: spaceId, // 👈 받아온 ID 사용
+                spaceId: spaceId,
                 date: dateStr,
                 startTime: time,
                 endTime: `${parseInt(time.split(":")[0]) + 1}:00`,
             });
         },
         onSuccess: () => {
-            alert("예약 성공! 🎉");
+            alert("✅ 예약 및 결제가 완료되었습니다!");
             queryClient.invalidateQueries({ queryKey: ["slots", spaceId, dateStr] });
+            queryClient.invalidateQueries({ queryKey: ["my-bookings"] }); // 내 예약 목록도 갱신
         },
         onError: (err: any) => {
-            alert(err.response?.data?.message || "예약 실패 (이미 선점됨)");
+            // 결제는 됐는데 서버 저장이 실패한 경우 (드문 경우지만 환불 로직 등이 필요할 수 있음)
+            alert(err.response?.data?.message || "예약 처리에 실패했습니다. 관리자에게 문의하세요.");
         },
     });
+
+    // 👇 [추가] 3. 결제 함수 (PortOne 연동)
+    const handlePayment = (time: string) => {
+        if (!window.IMP) {
+            alert("결제 모듈을 불러오지 못했습니다. 새로고침 해주세요.");
+            return;
+        }
+
+        const { IMP } = window;
+        // ⚠️ 가맹점 식별코드: 본인의 코드로 변경하세요! (포트원 관리자 콘솔 확인)
+        IMP.init("imp28478251");
+
+        const amount = 100; // 테스트 결제 금액 (100원)
+
+        // 결제창 호출
+        IMP.request_pay(
+            {
+                pg: "tosspayments",       // toss사
+                pay_method: "card",       // 결제 수단
+                merchant_uid: `mid_${new Date().getTime()}`, // 주문번호 (고유해야 함)
+                name: `${spaceName} - ${time} 예약`,         // 상품명
+                amount: amount,                              // 결제 금액
+                buyer_email: "test@example.com",             // 구매자 이메일 (로그인 정보에서 가져오면 좋음)
+                buyer_name: "홍길동",                        // 구매자 이름
+                buyer_tel: "010-1234-5678",                  // 구매자 전화번호
+            },
+            (rsp: any) => {
+                if (rsp.success) {
+                    // 결제 성공 시 -> 백엔드에 진짜 예약 요청을 보냄
+                    console.log("결제 성공", rsp);
+                    bookingMutation.mutate(time);
+                } else {
+                    // 결제 실패/취소 시
+                    alert(`결제에 실패하였습니다. (${rsp.error_msg})`);
+                }
+            }
+        );
+    };
 
     if (isLoading) return <div className="text-center p-10">⏳ 시간표 불러오는 중...</div>;
 
@@ -53,11 +98,29 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
         <div className="w-full max-w-md mx-auto bg-white p-6 rounded-xl shadow-sm border">
             <h2 className="text-xl font-bold mb-4 text-center">{spaceName} 예약하기</h2>
 
-            {/* 날짜 선택기 (간단 버전) */}
-            <div className="flex justify-between items-center mb-6">
-                <button onClick={() => setSelectedDate(new Date(selectedDate.setDate(selectedDate.getDate() - 1)))}>◀</button>
+            {/* 날짜 선택기 */}
+            <div className="flex justify-between items-center mb-6 bg-gray-50 p-2 rounded-lg">
+                <button
+                    onClick={() => {
+                        const prev = new Date(selectedDate);
+                        prev.setDate(selectedDate.getDate() - 1);
+                        setSelectedDate(prev);
+                    }}
+                    className="px-3 py-1 hover:bg-gray-200 rounded"
+                >
+                    ◀
+                </button>
                 <span className="font-bold text-lg">{dateStr}</span>
-                <button onClick={() => setSelectedDate(new Date(selectedDate.setDate(selectedDate.getDate() + 1)))}>▶</button>
+                <button
+                    onClick={() => {
+                        const next = new Date(selectedDate);
+                        next.setDate(selectedDate.getDate() + 1);
+                        setSelectedDate(next);
+                    }}
+                    className="px-3 py-1 hover:bg-gray-200 rounded"
+                >
+                    ▶
+                </button>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -65,15 +128,16 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
                     <button
                         key={slot.time}
                         disabled={slot.status === "BOOKED"}
+                        // 👇 [수정] 클릭 시 바로 API 호출하지 않고, 결제 함수(handlePayment) 실행
                         onClick={() => {
-                            if (confirm(`${slot.time}에 예약하시겠습니까?`)) {
-                                bookingMutation.mutate(slot.time);
+                            if (confirm(`${slot.time}에 예약하시겠습니까? (결제창이 뜹니다)`)) {
+                                handlePayment(slot.time);
                             }
                         }}
                         className={`py-3 rounded-lg font-bold transition-colors ${
                             slot.status === "BOOKED"
                                 ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                                : "bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white"
+                                : "bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white hover:shadow-md"
                         }`}
                     >
                         {slot.time}

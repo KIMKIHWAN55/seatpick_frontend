@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/providers"; //
+import Script from "next/script";
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
@@ -32,6 +33,12 @@ export default function RootLayout({
         <Providers>
             {children}
         </Providers>
+        {/* 👇 2. 포트원(아임포트) 결제 스크립트 추가 */}
+        {/* strategy="afterInteractive": 페이지 로드가 끝난 후 스크립트를 불러와서 속도를 저하시키지 않음 */}
+        <Script
+            src="https://cdn.iamport.kr/v1/iamport.js"
+            strategy="afterInteractive"
+        />
         </body>
         </html>
     );
