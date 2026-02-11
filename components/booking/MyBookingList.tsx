@@ -56,20 +56,35 @@ export default function MyBookingList() {
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
-                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                 item.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :
-                                     item.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
-                                         item.status === 'CANCELLED' ? 'bg-red-100 text-red-700' : // 👈 취소 상태 색상 추가
-                                             'bg-gray-100 text-gray-700'
-                             }`}>
-                                {item.status === 'CANCELLED' ? '취소됨' : item.status}
+                            {/* 1. 상태 뱃지 (Status Badge) */}
+                            <span
+                                className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                    item.status === "CONFIRMED"
+                                        ? "bg-green-100 text-green-700"
+                                        : item.status === "PENDING"
+                                            ? "bg-yellow-100 text-yellow-700"
+                                            : item.status === "CANCELLED"
+                                                ? "bg-red-100 text-red-700"
+                                                : item.status === "COMPLETED"
+                                                    ? "bg-gray-200 text-gray-600" // 👈 이용완료 (회색)
+                                                    : "bg-gray-100 text-gray-700"
+                                }`}
+                            >
+                                {/* 영어 상태값을 한글로 변환 */}
+                                {item.status === "CANCELLED"
+                                    ? "취소됨"
+                                    : item.status === "COMPLETED"
+                                        ? "이용완료"
+                                        : item.status === "CONFIRMED"
+                                            ? "예약확정"
+                                            : item.status}
                             </span>
 
-                            {/* 👇 취소되지 않은 예약에만 [취소] 버튼 표시 */}
-                            {item.status !== 'CANCELLED' && (
+                            {/* 2. 예약 취소 버튼 (취소됨, 이용완료가 아닐 때만 보임) */}
+                            {item.status !== "CANCELLED" && item.status !== "COMPLETED" && (
                                 <button
                                     onClick={() => handleCancel(item.id)}
-                                    className="text-xs text-red-500 underline hover:text-red-700"
+                                    className="ml-2 text-xs text-red-500 underline hover:text-red-700"
                                 >
                                     예약 취소
                                 </button>

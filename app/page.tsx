@@ -15,18 +15,14 @@ interface Space {
 
 export default function Home() {
     const GOOGLE_LOGIN_URL = "http://localhost:8080/oauth2/authorization/google";
-
-    // 👇 [추가] 로그인 상태 관리
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     useEffect(() => {
-        // 화면이 켜지면 토큰이 있는지 검사
         const token = localStorage.getItem("accessToken");
-        setIsLoggedIn(!!token); // 토큰 있으면 true, 없으면 false
+        setIsLoggedIn(!!token);
     }, []);
 
     const handleLogout = () => {
-        // 로그아웃: 토큰 삭제하고 상태 변경
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
         setIsLoggedIn(false);
@@ -49,7 +45,6 @@ export default function Home() {
                 </h1>
 
                 <div className="flex gap-2">
-                    {/* 👇 [수정] 로그인 상태에 따라 버튼 다르게 보여주기 */}
                     {isLoggedIn ? (
                         <>
                             <Link href="/my">
@@ -89,10 +84,11 @@ export default function Home() {
                                     </span>
                                 </div>
                                 <p className="text-gray-500 text-sm mb-4">📍 {space.location}</p>
+
                                 <Link href={`/spaces/${space.id}`}>
-                                <Button className="w-full mt-2" variant="secondary">
-                                    예약하기
-                                </Button>
+                                    <Button className="w-full mt-2" variant="secondary">
+                                        예약하기
+                                    </Button>
                                 </Link>
                             </div>
                         ))}
@@ -100,11 +96,15 @@ export default function Home() {
                 ) : (
                     <div className="text-center py-20 bg-white rounded-xl border border-dashed">
                         <p className="text-gray-500">등록된 공간이 없습니다.</p>
-                        <Link href="/admin/spaces" className="text-blue-500 underline mt-2 inline-block">
-                            (관리자) 공간 등록하러 가기
-                        </Link>
                     </div>
                 )}
+
+                {/* 👇 여기! 리스트 아래에 항상 보이도록 추가했습니다 */}
+                <div className="mt-10 text-center border-t pt-6">
+                    <Link href="/admin/spaces" className="text-gray-400 text-sm hover:text-gray-600 underline">
+                        🔧 (관리자) 새 공간 등록하러 가기
+                    </Link>
+                </div>
             </div>
         </main>
     );

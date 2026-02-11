@@ -1,111 +1,198 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 
-export default function AdminSpacePage() {
-    const router = useRouter();
+export default function AdminSpacesPage() {
+    const queryClient = useQueryClient();
+
+    // 수정 중인 공간 ID (null이면 생성 모드, 숫자가 있으면 수정 모드)
+    const [editingId, setEditingId] = useState<number | null>(null);
+
     const [form, setForm] = useState({
         name: "",
         location: "",
-        type: "MEETING_ROOM", // 기본값
+        type: "MEETING_ROOM",
+        imageUrl: "",
     });
 
-    // 옵션 관리 (간단하게 체크박스로)
-    const [options, setOptions] = useState({
-        wifi: false,
-        projector: false,
-        monitor: false,
+    // 1. 목록 조회
+    const { data: spaces } = useQuery({
+        queryKey: ["admin-spaces"],
+        queryFn: async () => {
+            const res = await api.get("/spaces");
+            return res.data;
+        },
     });
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    // 2. 등록 (Create)
+    const createMutation = useMutation({
+        mutationFn: async () => {
+            await api.post("/spaces", { ...form, options: {} });
+        },
+        onSuccess: () => {
+            alert("✅ 등록 완료!");
+            resetForm();
+            queryClient.invalidateQueries({ queryKey: ["admin-spaces"] });
+        },
+    });
 
-        // 체크된 옵션만 추려서 보냄
-        const optionsToSend = Object.fromEntries(
-            Object.entries(options).filter(([_, checked]) => checked)
-        );
+    // 3. 수정 (Update) - 새로 추가됨!
+    const updateMutation = useMutation({
+        mutationFn: async () => {
+            if (!editingId) return;
+            await api.put(`/spaces/${editingId}`, { ...form, options: {} });
+        },
+        onSuccess: () => {
+            alert("✨ 수정 완료!");
+            resetForm(); // 수정 끝나면 다시 생성 모드로 복귀
+            queryClient.invalidateQueries({ queryKey: ["admin-spaces"] });
+        },
+    });
 
-        try {
-            await api.post("/spaces", {
-                ...form,
-                options: optionsToSend,
-            });
-            alert("✨ 공간 등록 완료!");
-            router.push("/"); // 메인으로 이동해서 확인
-        } catch (err) {
-            alert("등록 실패 ㅠㅠ");
-            console.error(err);
-        }
+    // 4. 삭제 (Delete)
+    const deleteMutation = useMutation({
+        mutationFn: async (id: number) => {
+            await api.delete(`/spaces/${id}`);
+        },
+        onSuccess: () => {
+            alert("🗑️ 삭제되었습니다.");
+            queryClient.invalidateQueries({ queryKey: ["admin-spaces"] });
+        },
+        onError: (err: any) => {
+            let message = "삭제 중 오류가 발생했습니다.";
+
+            // 1. 백엔드가 문자열로 보냈을 때 (우리가 만든 GlobalExceptionHandler)
+            if (typeof err.response?.data === "string") {
+                message = err.response.data;
+            }
+            // 2. 스프링 기본 에러(JSON)로 왔을 때
+            else if (err.response?.data?.message) {
+                message = err.response.data.message;
+            }
+            // 3. 진짜 알 수 없는 객체일 때
+            else {
+                message = JSON.stringify(err.response?.data || "알 수 없는 오류");
+            }
+
+            alert(`❌ ${message}`);
+        },
+    });
+
+    // 폼 초기화 함수
+    const resetForm = () => {
+        setForm({ name: "", location: "", type: "MEETING_ROOM", imageUrl: "" });
+        setEditingId(null); // 수정 모드 해제
+    };
+
+    // 수정 버튼 눌렀을 때 폼에 데이터 채우기
+    const handleEditClick = (space: any) => {
+        setEditingId(space.id);
+        setForm({
+            name: space.name,
+            location: space.location,
+            type: space.type,
+            imageUrl: space.imageUrl || "",
+        });
+        // 스크롤을 맨 위로 올려서 폼 보여주기
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-lg">
-                <h1 className="text-2xl font-bold mb-6 text-center">🏢 공간 등록 (관리자)</h1>
+        <div className="max-w-4xl mx-auto p-6">
+            <h1 className="text-2xl font-bold mb-6">🔧 관리자 페이지 (공간 관리)</h1>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium mb-1">공간 이름</label>
-                        <input
-                            type="text"
-                            className="w-full p-2 border rounded"
-                            placeholder="예: 강남 2호점"
-                            value={form.name}
-                            onChange={(e) => setForm({...form, name: e.target.value})}
-                            required
-                        />
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                {/* 왼쪽: 입력 폼 (생성/수정 공용) */}
+                <div className={`p-6 rounded-xl border shadow-sm h-fit transition-colors ${editingId ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
+                    <h2 className="text-lg font-bold mb-4 flex justify-between items-center">
+                        {editingId ? "✏️ 공간 수정 모드" : "✨ 새 공간 등록"}
+                        {editingId && (
+                            <Button variant="ghost" size="sm" onClick={resetForm} className="text-xs text-gray-500">
+                                취소하고 등록하기
+                            </Button>
+                        )}
+                    </h2>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-1">위치</label>
-                        <input
-                            type="text"
-                            className="w-full p-2 border rounded"
-                            placeholder="예: 서울시 서초구..."
-                            value={form.location}
-                            onChange={(e) => setForm({...form, location: e.target.value})}
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">공간 타입</label>
-                        <select
-                            className="w-full p-2 border rounded"
-                            value={form.type}
-                            onChange={(e) => setForm({...form, type: e.target.value})}
-                        >
-                            <option value="MEETING_ROOM">미팅룸</option>
-                            <option value="STUDIO">스튜디오</option>
-                            <option value="GYM">체육관</option>
-                            <option value="OFFICE">오피스</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-2">편의 시설</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center gap-2">
-                                <input type="checkbox" checked={options.wifi} onChange={(e) => setOptions({...options, wifi: e.target.checked})} />
-                                WiFi
-                            </label>
-                            <label className="flex items-center gap-2">
-                                <input type="checkbox" checked={options.projector} onChange={(e) => setOptions({...options, projector: e.target.checked})} />
-                                프로젝터
-                            </label>
-                            <label className="flex items-center gap-2">
-                                <input type="checkbox" checked={options.monitor} onChange={(e) => setOptions({...options, monitor: e.target.checked})} />
-                                모니터
-                            </label>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">공간 이름</label>
+                            <input
+                                className="w-full p-2 border rounded"
+                                value={form.name}
+                                onChange={(e) => setForm({...form, name: e.target.value})}
+                                placeholder="예: 강남 1호점"
+                            />
                         </div>
-                    </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">위치</label>
+                            <input
+                                className="w-full p-2 border rounded"
+                                value={form.location}
+                                onChange={(e) => setForm({...form, location: e.target.value})}
+                                placeholder="예: 서울시 강남구..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">이미지 URL</label>
+                            <input
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="https://..."
+                                value={form.imageUrl}
+                                onChange={(e) => setForm({...form, imageUrl: e.target.value})}
+                            />
+                        </div>
 
-                    <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition">
-                        등록하기
-                    </button>
-                </form>
+                        {/* 버튼이 상황에 따라 바뀜 */}
+                        {editingId ? (
+                            <Button className="w-full mt-2 bg-blue-600 hover:bg-blue-700" onClick={() => updateMutation.mutate()}>
+                                수정 완료
+                            </Button>
+                        ) : (
+                            <Button className="w-full mt-2" onClick={() => createMutation.mutate()}>
+                                등록하기
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
+                {/* 오른쪽: 리스트 */}
+                <div className="bg-gray-50 p-6 rounded-xl border">
+                    <h2 className="text-lg font-bold mb-4">📋 등록된 공간 목록</h2>
+                    <div className="space-y-3">
+                        {spaces?.map((space: any) => (
+                            <div key={space.id} className={`bg-white p-4 rounded-lg border flex justify-between items-center shadow-sm ${editingId === space.id ? 'ring-2 ring-blue-500' : ''}`}>
+                                <div>
+                                    <h3 className="font-bold">{space.name}</h3>
+                                    <p className="text-xs text-gray-500">{space.location}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleEditClick(space)}
+                                    >
+                                        수정
+                                    </Button>
+                                    <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                            if(confirm(`'${space.name}'을(를) 삭제하시겠습니까?`)) {
+                                                deleteMutation.mutate(space.id);
+                                            }
+                                        }}
+                                    >
+                                        삭제
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                        {!spaces?.length && <p className="text-center text-gray-400 py-10">등록된 공간이 없습니다.</p>}
+                    </div>
+                </div>
             </div>
         </div>
     );
