@@ -4,12 +4,27 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { format } from "date-fns";
+import { AxiosError } from "axios"; // 👈 추가
 
-// 👇 [추가] window 객체에 IMP(아임포트)가 있다고 타입스크립트에게 알려줌
+// 👇 포트원 결제 응답 객체 타입 정의
+interface IamportResponse {
+    success: boolean;
+    error_msg?: string;
+    merchant_uid: string;
+    imp_uid?: string;
+    [key: string]: any; // 기타 필드 허용
+}
+
 declare global {
     interface Window {
         IMP: any;
     }
+}
+
+// 👇 슬롯 데이터 타입 정의
+interface Slot {
+    time: string;
+    status: "AVAILABLE" | "BOOKED";
 }
 
 interface SlotGridProps {
@@ -24,7 +39,7 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
     const dateStr = format(selectedDate, "yyyy-MM-dd");
 
     // 1. 슬롯 조회
-    const { data: slots, isLoading } = useQuery({
+    const { data: slots, isLoading } = useQuery<Slot[]>({
         queryKey: ["slots", spaceId, dateStr],
         queryFn: async () => {
             const res = await api.get(`/spaces/${spaceId}/slots?date=${dateStr}`);
@@ -32,10 +47,9 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
         },
     });
 
-    // 2. 백엔드 예약 요청 (결제 성공 시 호출됨)
+    // 2. 백엔드 예약 요청
     const bookingMutation = useMutation({
         mutationFn: async (time: string) => {
-            // API 호출
             await api.post("/bookings", {
                 spaceId: spaceId,
                 date: dateStr,
@@ -46,15 +60,14 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
         onSuccess: () => {
             alert("✅ 예약 및 결제가 완료되었습니다!");
             queryClient.invalidateQueries({ queryKey: ["slots", spaceId, dateStr] });
-            queryClient.invalidateQueries({ queryKey: ["my-bookings"] }); // 내 예약 목록도 갱신
+            queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
         },
-        onError: (err: any) => {
-            // 결제는 됐는데 서버 저장이 실패한 경우 (드문 경우지만 환불 로직 등이 필요할 수 있음)
+        onError: (err: AxiosError<{ message: string }>) => { // 👈 any 제거
             alert(err.response?.data?.message || "예약 처리에 실패했습니다. 관리자에게 문의하세요.");
         },
     });
 
-    // 👇 [추가] 3. 결제 함수 (PortOne 연동)
+    // 3. 결제 함수
     const handlePayment = (time: string) => {
         if (!window.IMP) {
             alert("결제 모듈을 불러오지 못했습니다. 새로고침 해주세요.");
@@ -62,30 +75,26 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
         }
 
         const { IMP } = window;
-        // ⚠️ 가맹점 식별코드: 본인의 코드로 변경하세요! (포트원 관리자 콘솔 확인)
         IMP.init("imp28478251");
 
-        const amount = 100; // 테스트 결제 금액 (100원)
+        const amount = 100;
 
-        // 결제창 호출
         IMP.request_pay(
             {
-                pg: "tosspayments",       // toss사
-                pay_method: "card",       // 결제 수단
-                merchant_uid: `mid_${new Date().getTime()}`, // 주문번호 (고유해야 함)
-                name: `${spaceName} - ${time} 예약`,         // 상품명
-                amount: amount,                              // 결제 금액
-                buyer_email: "test@example.com",             // 구매자 이메일 (로그인 정보에서 가져오면 좋음)
-                buyer_name: "홍길동",                        // 구매자 이름
-                buyer_tel: "010-1234-5678",                  // 구매자 전화번호
+                pg: "tosspayments",
+                pay_method: "card",
+                merchant_uid: `mid_${new Date().getTime()}`,
+                name: `${spaceName} - ${time} 예약`,
+                amount: amount,
+                buyer_email: "test@example.com",
+                buyer_name: "홍길동",
+                buyer_tel: "010-1234-5678",
             },
-            (rsp: any) => {
+            (rsp: IamportResponse) => { // 👈 any 제거
                 if (rsp.success) {
-                    // 결제 성공 시 -> 백엔드에 진짜 예약 요청을 보냄
                     console.log("결제 성공", rsp);
                     bookingMutation.mutate(time);
                 } else {
-                    // 결제 실패/취소 시
                     alert(`결제에 실패하였습니다. (${rsp.error_msg})`);
                 }
             }
@@ -98,7 +107,6 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
         <div className="w-full max-w-md mx-auto bg-white p-6 rounded-xl shadow-sm border">
             <h2 className="text-xl font-bold mb-4 text-center">{spaceName} 예약하기</h2>
 
-            {/* 날짜 선택기 */}
             <div className="flex justify-between items-center mb-6 bg-gray-50 p-2 rounded-lg">
                 <button
                     onClick={() => {
@@ -124,11 +132,10 @@ export default function SlotGrid({ spaceId, spaceName }: SlotGridProps) {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-                {slots?.map((slot: any) => (
+                {slots?.map((slot: Slot) => ( // 👈 any 제거
                     <button
                         key={slot.time}
                         disabled={slot.status === "BOOKED"}
-                        // 👇 [수정] 클릭 시 바로 API 호출하지 않고, 결제 함수(handlePayment) 실행
                         onClick={() => {
                             if (confirm(`${slot.time}에 예약하시겠습니까? (결제창이 뜹니다)`)) {
                                 handlePayment(slot.time);

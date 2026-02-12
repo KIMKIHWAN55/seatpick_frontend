@@ -1,16 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react"; // 👈 useEffect 추가
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { AxiosError } from "axios";
+
+interface Space {
+    id: number;
+    name: string;
+    location: string;
+    type: string;
+    imageUrl?: string;
+}
 
 export default function AdminSpacesPage() {
     const queryClient = useQueryClient();
 
-    // 수정 중인 공간 ID (null이면 생성 모드, 숫자가 있으면 수정 모드)
-    const [editingId, setEditingId] = useState<number | null>(null);
+    // 1. 하이드레이션 에러 방지용 state
+    const [mounted, setMounted] = useState(false);
 
+    const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState({
         name: "",
         location: "",
@@ -18,16 +28,22 @@ export default function AdminSpacesPage() {
         imageUrl: "",
     });
 
-    // 1. 목록 조회
-    const { data: spaces } = useQuery({
+    // 2. 컴포넌트가 브라우저에 "진짜로" 떴는지 확인
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    // 3. 목록 조회 (enabled 옵션 추가: 브라우저일 때만 실행)
+    const { data: spaces, isLoading } = useQuery<Space[]>({
         queryKey: ["admin-spaces"],
         queryFn: async () => {
-            const res = await api.get("/spaces");
+            const res = await api.get("/spaces/managed");
             return res.data;
         },
+        enabled: mounted, // 👈 중요! 브라우저가 준비되었을 때만 API 호출
     });
 
-    // 2. 등록 (Create)
+    // 등록 Mutation
     const createMutation = useMutation({
         mutationFn: async () => {
             await api.post("/spaces", { ...form, options: {} });
@@ -39,7 +55,7 @@ export default function AdminSpacesPage() {
         },
     });
 
-    // 3. 수정 (Update) - 새로 추가됨!
+    // 수정 Mutation
     const updateMutation = useMutation({
         mutationFn: async () => {
             if (!editingId) return;
@@ -47,12 +63,12 @@ export default function AdminSpacesPage() {
         },
         onSuccess: () => {
             alert("✨ 수정 완료!");
-            resetForm(); // 수정 끝나면 다시 생성 모드로 복귀
+            resetForm();
             queryClient.invalidateQueries({ queryKey: ["admin-spaces"] });
         },
     });
 
-    // 4. 삭제 (Delete)
+    // 삭제 Mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: number) => {
             await api.delete(`/spaces/${id}`);
@@ -61,34 +77,23 @@ export default function AdminSpacesPage() {
             alert("🗑️ 삭제되었습니다.");
             queryClient.invalidateQueries({ queryKey: ["admin-spaces"] });
         },
-        onError: (err: any) => {
+        onError: (err: AxiosError<{ message: string }>) => {
             let message = "삭제 중 오류가 발생했습니다.";
-
-            // 1. 백엔드가 문자열로 보냈을 때 (우리가 만든 GlobalExceptionHandler)
             if (typeof err.response?.data === "string") {
                 message = err.response.data;
-            }
-            // 2. 스프링 기본 에러(JSON)로 왔을 때
-            else if (err.response?.data?.message) {
+            } else if (err.response?.data?.message) {
                 message = err.response.data.message;
             }
-            // 3. 진짜 알 수 없는 객체일 때
-            else {
-                message = JSON.stringify(err.response?.data || "알 수 없는 오류");
-            }
-
             alert(`❌ ${message}`);
         },
     });
 
-    // 폼 초기화 함수
     const resetForm = () => {
         setForm({ name: "", location: "", type: "MEETING_ROOM", imageUrl: "" });
-        setEditingId(null); // 수정 모드 해제
+        setEditingId(null);
     };
 
-    // 수정 버튼 눌렀을 때 폼에 데이터 채우기
-    const handleEditClick = (space: any) => {
+    const handleEditClick = (space: Space) => {
         setEditingId(space.id);
         setForm({
             name: space.name,
@@ -96,16 +101,19 @@ export default function AdminSpacesPage() {
             type: space.type,
             imageUrl: space.imageUrl || "",
         });
-        // 스크롤을 맨 위로 올려서 폼 보여주기
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    // 4. 서버 렌더링 중이거나 로딩 중일 때 처리 (Hydration 에러 방지)
+    if (!mounted) return <div className="p-10 text-center">로딩 준비 중...</div>;
+    if (isLoading) return <div className="p-10 text-center">데이터를 불러오는 중...</div>;
 
     return (
         <div className="max-w-4xl mx-auto p-6">
             <h1 className="text-2xl font-bold mb-6">🔧 관리자 페이지 (공간 관리)</h1>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                {/* 왼쪽: 입력 폼 (생성/수정 공용) */}
+                {/* 왼쪽: 입력 폼 */}
                 <div className={`p-6 rounded-xl border shadow-sm h-fit transition-colors ${editingId ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
                     <h2 className="text-lg font-bold mb-4 flex justify-between items-center">
                         {editingId ? "✏️ 공간 수정 모드" : "✨ 새 공간 등록"}
@@ -145,7 +153,6 @@ export default function AdminSpacesPage() {
                             />
                         </div>
 
-                        {/* 버튼이 상황에 따라 바뀜 */}
                         {editingId ? (
                             <Button className="w-full mt-2 bg-blue-600 hover:bg-blue-700" onClick={() => updateMutation.mutate()}>
                                 수정 완료
@@ -158,11 +165,11 @@ export default function AdminSpacesPage() {
                     </div>
                 </div>
 
-                {/* 오른쪽: 리스트 */}
+                {/* 오른쪽: 목록 */}
                 <div className="bg-gray-50 p-6 rounded-xl border">
                     <h2 className="text-lg font-bold mb-4">📋 등록된 공간 목록</h2>
                     <div className="space-y-3">
-                        {spaces?.map((space: any) => (
+                        {spaces?.map((space) => (
                             <div key={space.id} className={`bg-white p-4 rounded-lg border flex justify-between items-center shadow-sm ${editingId === space.id ? 'ring-2 ring-blue-500' : ''}`}>
                                 <div>
                                     <h3 className="font-bold">{space.name}</h3>

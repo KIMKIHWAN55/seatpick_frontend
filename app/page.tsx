@@ -15,13 +15,16 @@ interface Space {
 
 export default function Home() {
     const GOOGLE_LOGIN_URL = "http://localhost:8080/oauth2/authorization/google";
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-    useEffect(() => {
-        const token = localStorage.getItem("accessToken");
-        setIsLoggedIn(!!token);
-    }, []);
+    // 1. 초기값 설정 시점에 바로 localStorage 확인 (Lazy Initializer)
+    const [isLoggedIn, setIsLoggedIn] = useState(() => {
+        if (typeof window !== "undefined") {
+            return !!localStorage.getItem("accessToken");
+        }
+        return false;
+    });
 
+    // 2. 로그아웃 핸들러
     const handleLogout = () => {
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
